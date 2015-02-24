@@ -8,19 +8,33 @@ fixLd(){
   sed -i 's@/usr/lib/arm-linux-gnueabihf/libcofi_rpi.so@\#/usr/lib/arm-linux-gnueabihf/libcofi_rpi.so@' /etc/ld.so.preload
 }
 
+gitclone(){
+if [ $GIT_REPO_OVERRIDE != "" ] ; then
+    REPO=$GIT_REPO_OVERRIDE`echo $1 | awk -F '/' '{print $(NF)}'`
+    sudo -u pi git clone $REPO
+    sudo -u pi git remote set-url $1
+else
+    sudo -u pi git clone $1
+fi
+}
+
 unpackHome(){
-  chown -hR pi /filesystem/home
-  chgrp -hR pi /filesystem/home
+  shopt -s dotglob
   cp -av /filesystem/home/* /home/pi
-  cp -av /filesystem/home/.* /home/pi
+  shopt -u dotglob
+  chown -hR pi:pi /home/pi
 }
 
 unpackRoot(){
+  shopt -s dotglob
   cp -av /filesystem/root/* /
+  shopt -u dotglob
 }
 
 unpackBoot(){
+  shopt -s dotglob
   cp -av /filesystem/boot/* /boot
+  shopt -u dotglob
 }
 
 fixLd
@@ -28,10 +42,10 @@ unpackHome
 unpackBoot
 apt-get update
 
-apt-get remove -y --purge scratch squeak-plugins-scratch squeak-vm wolfram-engine
+apt-get remove -y --purge scratch squeak-plugins-scratch squeak-vm wolfram-engine python-minecraftpi minecraft-pi sonic-pi oracle-java8-jdk
 
 #apt-get octoprint virtualenv
-apt-get -y install python-virtualenv python-dev git python-numpy
+apt-get -y --force-yes install python-virtualenv python-dev git python-numpy screen libts-bin
 
 pushd /home/pi
   
@@ -39,9 +53,15 @@ pushd /home/pi
   sudo -u pi virtualenv --system-site-packages oprint
   
   #OctoPrint
-  sudo -u pi git clone https://github.com/foosel/OctoPrint.git
+  gitclone https://github.com/foosel/OctoPrint.git
   pushd OctoPrint
     sudo -u pi /home/pi/oprint/bin/python setup.py install
+  popd
+
+  #OctoPiPanel
+  gitclone https://github.com/jonaslorander/OctoPiPanel.git
+  pushd OctoPiPanel
+    sudo -u pi /home/pi/oprint/bin/pip install -r requirements.txt
   popd
 
   #Make sure user pi has access to serial ports
@@ -49,8 +69,8 @@ pushd /home/pi
   sudo usermod -a -G dialout pi
       
   #mjpg-streamer
-  sudo apt-get -y install subversion libjpeg8-dev imagemagick libav-tools cmake
-  sudo -u pi git clone https://github.com/jacksonliam/mjpg-streamer.git
+  sudo apt-get -y --force-yes install subversion libjpeg8-dev imagemagick libav-tools cmake libv4l-dev
+  gitclone https://github.com/jacksonliam/mjpg-streamer.git
   pushd mjpg-streamer
     mv mjpg-streamer-experimental/* .
     sudo -u pi make
@@ -71,10 +91,10 @@ pushd /home/pi
   popd
   
   #setup haproxy for http and https, and webcam
-  export HAPROXY_VERSION=1.5-dev19
-  sudo apt-get -y install ssl-cert libssl-dev libpcre3-dev checkinstall
+  export HAPROXY_VERSION=1.5.8
+  sudo apt-get -y --force-yes install ssl-cert libssl-dev libpcre3-dev checkinstall
   rm /etc/ssl/private/ssl-cert-snakeoil.key /etc/ssl/certs/ssl-cert-snakeoil.pem
-  sudo -u pi wget http://haproxy.1wt.eu/download/1.5/src/devel/haproxy-${HAPROXY_VERSION}.tar.gz
+  sudo -u pi wget http://www.haproxy.org/download/1.5/src/haproxy-${HAPROXY_VERSION}.tar.gz
   sudo -u pi tar xzvf haproxy-${HAPROXY_VERSION}.tar.gz
   rm haproxy-${HAPROXY_VERSION}.tar.gz
   sudo -u pi mv `ls | grep haproxy | head -n 1` haproxy-ss
@@ -88,6 +108,17 @@ pushd /home/pi
   adduser --system --disabled-password --disabled-login --home /var/lib/haproxy \
           --no-create-home --quiet --force-badname --group haproxy
 
+  #Add fbcp for TFT screens
+  gitclone https://github.com/tasanakorn/rpi-fbcp
+  pushd rpi-fbcp
+    mkdir build
+    pushd build
+      cmake ..
+      make
+      install fbcp /usr/local/bin/fbcp
+      make clean
+    popd
+  popd
 popd
 
 sed -i 's@exit 0@@' /etc/rc.local
@@ -102,7 +133,7 @@ echo "pi ALL=NOPASSWD: /sbin/shutdown" > /etc/sudoers.d/octoprint-shutdown
 echo "pi ALL=NOPASSWD: /sbin/service" > /etc/sudoers.d/octoprint-service
 
 #reach printer by name
-sudo apt-get -y install avahi-daemon
+sudo apt-get -y --force-yes install avahi-daemon
 echo octopi > /etc/hostname
 sed -i 's@raspberrypi@octopi@' /etc/hosts
 
